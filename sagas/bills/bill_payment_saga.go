@@ -1,4 +1,4 @@
-package implementations
+package bills
 
 import (
 	"context"
@@ -22,7 +22,7 @@ type BillPaymentSaga struct {
 	base.SagaAbstract
 }
 
-func NewSaga(sagaType string, state domain.SagaState, conn *gorm.DB) base.Saga {
+func NewBillPaymentSaga(sagaType string, state domain.SagaState, conn *gorm.DB) base.Saga {
 	steps := []string{RESERVE_CREDIT, BUY_TOKEN}
 	return &BillPaymentSaga{
 		base.SagaAbstract{
