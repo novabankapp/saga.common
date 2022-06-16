@@ -1,35 +1,87 @@
 package base
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/novabankapp/saga.common/domain"
 	"github.com/novabankapp/saga.common/events"
+	"gorm.io/gorm"
 	"reflect"
+	"time"
 )
 
-type Saga interface {
-	OnStepEvent(eventType string, status domain.SagaStepStatus)
-	Processed(id string, save func(id string) bool)
-	AlreadyProcessed(id string, processed func(id string) bool) bool
+type SagaSteps interface {
+	GetCompensatingStepMessage(id string) domain.SagaStepMessage
+	GetStepMessage(id string) domain.SagaStepMessage
+}
+type SagaProcessed interface {
+	Processed(id string) bool
+	AlreadyProcessed(id string) bool
+}
+type SagaProgress interface {
 	GoBack(getCompensatingStepMessage func(id string) domain.SagaStepMessage,
 		saveEvent func(event events.Event) bool,
 		saveSagaState func(state domain.SagaState) bool) error
 	Advance(getStepMessage func(id string) domain.SagaStepMessage,
 		saveEvent func(event events.Event) bool,
 		saveSagaState func(state domain.SagaState) bool) error
+	OnStepEvent(eventType string, status domain.SagaStepStatus)
+}
+type Saga interface {
+	SagaSteps
+	SagaProcessed
+	SagaProgress
 }
 
 type SagaAbstract struct {
+	Type      string
 	Steps     []string
 	SagaState domain.SagaState
+	Conn      *gorm.DB
 }
 
-func (s *SagaAbstract) Processed(id string, save func(id string) bool) {
-	save(id)
+func (s *SagaAbstract) SaveEvent(event events.Event) bool {
+	var rEvent = event.(events.OutboxEvent)
+	result := s.Conn.Create(&rEvent).WithContext(context.Background())
+	if result.Error != nil && result.RowsAffected != 1 {
+		return false
+	}
+	return true
+}
+func (s *SagaAbstract) SaveSagaState(state domain.SagaState) bool {
+	result := s.Conn.Save(state).WithContext(context.Background())
+	if result.Error != nil && result.RowsAffected != 1 {
+		return false
+	}
+	return true
+}
+func (s *SagaAbstract) Processed(id string) bool {
+	result := s.Conn.Create(domain.ConsumedMessage{
+		Id:        id,
+		CreatedAt: time.Now(),
+	}).WithContext(context.Background())
+	if result.Error != nil && result.RowsAffected != 1 {
+		return false
+	}
+	return true
 }
 
-func (s *SagaAbstract) AlreadyProcessed(id string, processed func(id string) bool) bool {
-	return processed(id)
+func (s *SagaAbstract) AlreadyProcessed(id string) bool {
+	var consumed domain.ConsumedMessage
+	result := s.Conn.First(&consumed, "id = ?", id).WithContext(context.Background())
+	if result.Error != nil {
+
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return false
+
+		} else {
+			return false
+
+		}
+		return false
+	}
+	return true
 }
 
 func (s *SagaAbstract) OnStepEvent(eventType string, status domain.SagaStepStatus) {
@@ -37,9 +89,9 @@ func (s *SagaAbstract) OnStepEvent(eventType string, status domain.SagaStepStatu
 	stepStatus[eventType] = status
 
 	if status == domain.SUCCEDED {
-
+		//s.Advance()
 	} else if status == domain.FAILED {
-
+		//s.GoBack()
 	}
 	allStatus := make(map[string]bool)
 	fields := reflect.ValueOf(stepStatus).MapKeys()
