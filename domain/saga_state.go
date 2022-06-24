@@ -22,3 +22,7 @@ type SagaState struct {
 	StepStatus  base.JSONB `gorm:"type:jsonb" sql:"type:jsonb" json:"step_status"`
 	SagaStatus  string     `json:"saga_status"`
 }
+
+func (s *SagaState) IsNoSQLEntity() bool {
+	return true
+}

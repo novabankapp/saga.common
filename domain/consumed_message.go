@@ -7,6 +7,10 @@ type ConsumedMessage struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+func (s *ConsumedMessage) IsNoSQLEntity() bool {
+	return true
+}
+
 func NewConsumedMessage(id string, createdAt time.Time) *ConsumedMessage {
 	return &ConsumedMessage{
 		id,

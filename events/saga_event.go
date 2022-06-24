@@ -18,6 +18,10 @@ type OutboxEvent struct {
 	Timestamp     time.Time  `gorm:"timestamp"`
 }
 
+func (s *OutboxEvent) IsNoSQLEntity() bool {
+	return true
+}
+
 func NewOutboxEvent(aggregateId, oType, aggregateType string, payload base.JSONB) Event {
 	event := OutboxEvent{
 		AggregateId:   aggregateId,

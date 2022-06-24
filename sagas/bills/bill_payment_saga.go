@@ -2,11 +2,11 @@ package bills
 
 import (
 	"context"
-	"errors"
 	"github.com/google/uuid"
+	baseRepository "github.com/novabankapp/common.data/repositories/base/cassandra"
 	"github.com/novabankapp/saga.common/domain"
 	"github.com/novabankapp/saga.common/domain/base"
-	"gorm.io/gorm"
+	"github.com/novabankapp/saga.common/events"
 )
 
 const (
@@ -19,19 +19,35 @@ const (
 )
 
 type BillPaymentSaga struct {
+	repo baseRepository.CassandraRepository[events.OutboxEvent]
 	base.SagaAbstract
 }
 
-func NewBillPaymentSaga(sagaType string, state domain.SagaState, conn *gorm.DB) base.Saga {
+func NewBillPaymentSaga(
+	state domain.SagaState,
+	sagaRepo baseRepository.CassandraRepository[domain.SagaState],
+	messageRepo baseRepository.CassandraRepository[domain.ConsumedMessage],
+	repo baseRepository.CassandraRepository[events.OutboxEvent],
+) base.Saga {
 	steps := []string{RESERVE_CREDIT, BUY_TOKEN}
 	return &BillPaymentSaga{
+		repo,
 		base.SagaAbstract{
-			Type:      TYPE,
-			Steps:     steps,
-			SagaState: state,
-			Conn:      conn,
+			Type:        TYPE,
+			Steps:       steps,
+			SagaState:   state,
+			MessageRepo: messageRepo,
+			SagaRepo:    sagaRepo,
 		},
 	}
+}
+func (s *BillPaymentSaga) SaveEvent(event events.Event) bool {
+	var rEvent = event.(events.OutboxEvent)
+	result, err := s.repo.Create(context.Background(), rEvent)
+	if err != nil {
+		return false
+	}
+	return result
 }
 func (s *BillPaymentSaga) GetCompensatingStepMessage(id string) domain.SagaStepMessage {
 	payload := s.SagaState.Payload
@@ -90,23 +106,19 @@ func (s *BillPaymentSaga) Begin(ctx context.Context, payload base.JSONB) {
 		StepStatus:  make(map[string]interface{}),
 	}
 	s.SagaState = state
-	result := s.Conn.Create(&s.SagaState).WithContext(ctx)
-	if result.Error != nil && result.RowsAffected != 1 {
+	_, err := s.SagaRepo.Create(context.Background(), s.SagaState)
+	if err != nil {
 
 	}
 	s.Advance(s.GetStepMessage, s.SaveEvent, s.SaveSagaState)
 }
 func (s *BillPaymentSaga) Find(ctx context.Context, id string) (*domain.SagaState, error) {
-	var state domain.SagaState
-	result := s.Conn.First(&state, "id = ?", id).WithContext(context.Background())
-	if result.Error != nil {
 
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, errors.New("saga not found")
+	result, err := s.SagaRepo.GetById(context.Background(), id)
+	if err != nil {
 
-		}
-		return nil, result.Error
+		return nil, err
 
 	}
-	return &state, nil
+	return result, nil
 }
